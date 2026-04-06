@@ -34,21 +34,23 @@ function startDeduction(session) {
   if (session.interval) return; // prevent multiple timers
 
   session.interval = setInterval(() => {
-    if (!session.callActive) return;
+  if (!session.callActive) return;
 
-    if (session.balance > 0) {
-      session.balance -= 1;
-    } else if (session.credit > 0) {
-      session.usingCredit = true;
-      session.credit -= 1;
-    } else {
-      // End call automatically
-      session.callActive = false;
-      clearInterval(session.interval);
-      session.interval = null;
-    }
+  if (session.balance > 0) {
+    session.balance -= 1;
+    session.usingCredit = false;
+  } else if (session.credit > 0) {
+    session.usingCredit = true;
+    session.credit -= 1;
+  } else {
+    session.callActive = false;
+    clearInterval(session.interval);
+    session.interval = null;
+  }
 
-  }, 1000); // every 1 second
+  console.log("Deducting:", session.balance, session.credit);
+
+}, 1000);
 }
 
 // ---------------- ROUTES ----------------
