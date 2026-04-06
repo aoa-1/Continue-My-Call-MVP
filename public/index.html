@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Call Continuity MVP</title>
+</head>
+<body>
+  <h1>📞 Call Continuity MVP</h1>
+
+  <button style="background-color:green;color:white" onclick="startCall()">Start Call</button>
+  <button style="background-color:red;color:white" onclick="endCall()">End Call</button>
+  <button onclick="resetDemo()">🔄 Reset Demo</button>
+
+  <h2 id="callStatus">Status: Idle</h2>
+  <h3 id="timer">⏱ 00:00</h3>
+
+  <h2>Wallet:</h2>
+  <p id="status">Loading...</p>
+
+  <script>
+    // Create or retrieve unique session ID per user
+    let sessionId = localStorage.getItem("sessionId");
+    if (!sessionId) {
+      sessionId = Date.now() + "-" + Math.random();
+      localStorage.setItem("sessionId", sessionId);
+    }
+
+    let callActive = false;
+    let seconds = 0;
+    let timerInterval = null;
+
+    function formatTime(sec) {
+      let mins = Math.floor(sec / 60);
+      let secs = sec % 60;
+      return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+    }
+
+    function startTimer() {
+      timerInterval = setInterval(() => {
+        seconds++;
+        document.getElementById("timer").innerText = "⏱ " + formatTime(seconds);
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      seconds = 0;
+      document.getElementById("timer").innerText = "⏱ 00:00";
+    }
+
+    async function startCall() {
+      await fetch("/start-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+      callActive = true;
+      document.getElementById("callStatus").innerText = "📡 In Call";
+      startTimer();
+    }
+
+    async function endCall() {
+      await fetch("/end-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+      callActive = false;
+      document.getElementById("callStatus").innerText = "❌ Call Ended";
+      stopTimer();
+    }
+
+    async function resetDemo() {
+      await fetch("/reset-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+      callActive = false;
+      seconds = 0;
+      document.getElementById("timer").innerText = "⏱ 00:00";
+      document.getElementById("callStatus").innerText = "Status: Idle";
+      document.getElementById("status").innerText = "Balance reset.";
+      localStorage.removeItem("sessionId"); // new session for next interaction
+      sessionId = Date.now() + "-" + Math.random();
+      localStorage.setItem("sessionId", sessionId);
+    }
+
+    async function getStatus() {
+      const res = await fetch("/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+      const data = await res.json();
+
+      document.getElementById("status").innerHTML = `
+        Balance: ₦${data.balance} <br>
+        Credit: ₦${data.credit} <br>
+        Using Credit: <span style="color:${data.usingCredit ? 'red' : 'green'}">
+          ${data.usingCredit}
+        </span><br>
+        In Call: ${data.callActive}
+      `;
+
+      if (!data.callActive && callActive) {
+        callActive = false;
+        document.getElementById("callStatus").innerText = "❌ Call Ended";
+        stopTimer();
+      }
+    }
+
+    setInterval(getStatus, 2000);
+  </script>
+</body>
+</html>

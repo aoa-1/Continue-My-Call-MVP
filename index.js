@@ -1,65 +1,74 @@
-const path = require("path");
-const express = require("express");
+const express = require('express');
 const app = express();
+const path = require('path');
+const bodyParser = require('body-parser');
 
-let user = {
-  balance: 20,
-  credit: 50,
-  usingCredit: false,
-  inCall: false
-};
+app.use(bodyParser.json());
 
-let callInterval = null;
+// Serve frontend from /public
+app.use(express.static(path.join(__dirname, 'public')));
 
-app.get("/", (req, res) => {
-  res.send("Call Continuity MVP Running 🚀");
+// Send index.html for any other route (so direct URL access works)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// START CALL
-app.get("/start-call", (req, res) => {
-  if (user.inCall) {
-    return res.json({ message: "Call already in progress" });
-  }
+// ----------------- SESSION LOGIC -----------------
 
-  user.inCall = true;
+// Store sessions per user
+let sessions = {}; // { sessionId: { callActive, balance, credit, usingCredit, seconds } }
 
-  callInterval = setInterval(() => {
-    if (user.balance > 0) {
-      user.balance -= 5;
-      console.log("Deducting from MAIN balance");
-    } else if (!user.usingCredit) {
-      user.usingCredit = true;
-      console.log("🔥 Switched to CREDIT");
-    } else if (user.credit > 0) {
-      user.credit -= 5;
-      console.log("Deducting from CREDIT");
-    } else {
-      console.log("❌ Credit exhausted. Ending call.");
-      clearInterval(callInterval);
-      user.inCall = false;
+// Helper: format session if it doesn't exist
+function getSession(id) {
+    if (!sessions[id]) {
+        sessions[id] = {
+            callActive: false,
+            balance: 100,
+            credit: 50,
+            usingCredit: false,
+            seconds: 0
+        };
     }
-  }, 3000); // every 3 seconds
+    return sessions[id];
+}
 
-  res.json({ message: "Call started" });
+// Start call
+app.post("/start-call", (req, res) => {
+    const { sessionId } = req.body;
+    const session = getSession(sessionId);
+
+    session.callActive = true;
+    session.usingCredit = session.balance <= 0;
+    res.json({ status: "call started", session });
 });
 
-app.get("/app", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+// End call
+app.post("/end-call", (req, res) => {
+    const { sessionId } = req.body;
+    const session = getSession(sessionId);
+
+    session.callActive = false;
+    session.balance = 100; // reset balance
+    session.credit = 50;   // reset credit
+    session.usingCredit = false;
+    session.seconds = 0;
+    res.json({ status: "call ended", session });
 });
 
-// STOP CALL
-app.get("/end-call", (req, res) => {
-  clearInterval(callInterval);
-  user.inCall = false;
-
-  res.json({ message: "Call ended" });
+// Get session status
+app.post("/status", (req, res) => {
+    const { sessionId } = req.body;
+    const session = getSession(sessionId);
+    res.json(session);
 });
 
-// CHECK STATUS
-app.get("/status", (req, res) => {
-  res.json(user);
+// Reset demo
+app.post("/reset-session", (req, res) => {
+    const { sessionId } = req.body;
+    delete sessions[sessionId]; // remove session so a new one is created
+    res.json({ status: "session reset" });
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
-});
+// ----------------- START SERVER -----------------
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
