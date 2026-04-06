@@ -16,7 +16,7 @@
   <h2>Wallet:</h2>
   <p id="status">Loading...</p>
 
- <script>
+<script>
   let sessionId = localStorage.getItem("sessionId");
   if (!sessionId) {
     sessionId = Date.now() + "-" + Math.random();
@@ -73,9 +73,16 @@
       body: JSON.stringify({ sessionId })
     });
 
+    resetUI();
+  }
+
+  function resetUI() {
     callActive = false;
-    document.getElementById("callStatus").innerText = "❌ Call Ended";
+    warnedLowBalance = false;
+    switchedToCredit = false;
+
     stopTimer();
+    document.getElementById("callStatus").innerText = "❌ Call Ended";
   }
 
   async function resetDemo() {
@@ -85,11 +92,8 @@
       body: JSON.stringify({ sessionId })
     });
 
-    callActive = false;
-    warnedLowBalance = false;
-    switchedToCredit = false;
+    resetUI();
 
-    stopTimer();
     document.getElementById("callStatus").innerText = "Status: Idle";
     document.getElementById("status").innerText = "Balance reset.";
 
@@ -107,7 +111,7 @@
 
     const data = await res.json();
 
-    // 🔁 Sync call state
+    // 🔁 FULL STATE SYNC
     if (data.callActive && !callActive) {
       callActive = true;
       startTimer();
@@ -115,33 +119,30 @@
     }
 
     if (!data.callActive && callActive) {
-      callActive = false;
-      stopTimer();
-      document.getElementById("callStatus").innerText = "❌ Call Ended";
+      resetUI();
     }
 
     // ⚠️ Low balance warning
-    if (data.balance <= 5 && data.balance > 0 && !warnedLowBalance) {
+    if (data.callActive && data.balance <= 5 && data.balance > 0 && !warnedLowBalance) {
       warnedLowBalance = true;
-      alert("⚠️ Low balance! Call will switch to credit soon.");
+      alert("⚠️ Low balance! Switching to credit soon...");
     }
 
     // 🔴 Switched to credit
-    if (data.usingCredit && !switchedToCredit) {
+    if (data.callActive && data.usingCredit && !switchedToCredit) {
       switchedToCredit = true;
-      alert("🚨 You are now using borrowed airtime (credit).");
+      alert("🚨 You are now using borrowed airtime!");
     }
 
-    // 💰 UI display
+    // 💰 UI DISPLAY
     document.getElementById("status").innerHTML = `
       <b>Balance:</b> ₦${data.balance} <br>
       <b>Credit:</b> ₦${data.credit} <br>
       <b>Mode:</b> ${data.usingCredit ? "🔴 Credit Mode" : "🟢 Airtime"} <br>
-      <b>Call:</b> ${data.callActive ? "📡 Active" : "❌ Ended"}
+      <b>Status:</b> ${data.callActive ? "📡 Active Call" : "❌ No Call"}
     `;
   }
 
-  // Faster refresh for smooth UI
   setInterval(getStatus, 1000);
 </script>
 </body>
