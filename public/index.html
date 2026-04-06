@@ -16,100 +16,133 @@
   <h2>Wallet:</h2>
   <p id="status">Loading...</p>
 
-  <script>
-    // Create or retrieve unique session ID per user
-    let sessionId = localStorage.getItem("sessionId");
-    if (!sessionId) {
-      sessionId = Date.now() + "-" + Math.random();
-      localStorage.setItem("sessionId", sessionId);
-    }
+ <script>
+  let sessionId = localStorage.getItem("sessionId");
+  if (!sessionId) {
+    sessionId = Date.now() + "-" + Math.random();
+    localStorage.setItem("sessionId", sessionId);
+  }
 
-    let callActive = false;
-    let seconds = 0;
-    let timerInterval = null;
+  let callActive = false;
+  let seconds = 0;
+  let timerInterval = null;
+  let warnedLowBalance = false;
+  let switchedToCredit = false;
 
-    function formatTime(sec) {
-      let mins = Math.floor(sec / 60);
-      let secs = sec % 60;
-      return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
-    }
+  function formatTime(sec) {
+    let mins = Math.floor(sec / 60);
+    let secs = sec % 60;
+    return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+  }
 
-    function startTimer() {
-      timerInterval = setInterval(() => {
-        seconds++;
-        document.getElementById("timer").innerText = "⏱ " + formatTime(seconds);
-      }, 1000);
-    }
+  function startTimer() {
+    if (timerInterval) return;
 
-    function stopTimer() {
-      clearInterval(timerInterval);
-      seconds = 0;
-      document.getElementById("timer").innerText = "⏱ 00:00";
-    }
+    timerInterval = setInterval(() => {
+      seconds++;
+      document.getElementById("timer").innerText = "⏱ " + formatTime(seconds);
+    }, 1000);
+  }
 
-    async function startCall() {
-      await fetch("/start-call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId })
-      });
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    seconds = 0;
+    document.getElementById("timer").innerText = "⏱ 00:00";
+  }
+
+  async function startCall() {
+    await fetch("/start-call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId })
+    });
+
+    callActive = true;
+    warnedLowBalance = false;
+    switchedToCredit = false;
+
+    document.getElementById("callStatus").innerText = "📡 In Call";
+    startTimer();
+  }
+
+  async function endCall() {
+    await fetch("/end-call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId })
+    });
+
+    callActive = false;
+    document.getElementById("callStatus").innerText = "❌ Call Ended";
+    stopTimer();
+  }
+
+  async function resetDemo() {
+    await fetch("/reset-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId })
+    });
+
+    callActive = false;
+    warnedLowBalance = false;
+    switchedToCredit = false;
+
+    stopTimer();
+    document.getElementById("callStatus").innerText = "Status: Idle";
+    document.getElementById("status").innerText = "Balance reset.";
+
+    localStorage.removeItem("sessionId");
+    sessionId = Date.now() + "-" + Math.random();
+    localStorage.setItem("sessionId", sessionId);
+  }
+
+  async function getStatus() {
+    const res = await fetch("/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId })
+    });
+
+    const data = await res.json();
+
+    // 🔁 Sync call state
+    if (data.callActive && !callActive) {
       callActive = true;
-      document.getElementById("callStatus").innerText = "📡 In Call";
       startTimer();
+      document.getElementById("callStatus").innerText = "📡 In Call";
     }
 
-    async function endCall() {
-      await fetch("/end-call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId })
-      });
+    if (!data.callActive && callActive) {
       callActive = false;
-      document.getElementById("callStatus").innerText = "❌ Call Ended";
       stopTimer();
+      document.getElementById("callStatus").innerText = "❌ Call Ended";
     }
 
-    async function resetDemo() {
-      await fetch("/reset-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId })
-      });
-      callActive = false;
-      seconds = 0;
-      document.getElementById("timer").innerText = "⏱ 00:00";
-      document.getElementById("callStatus").innerText = "Status: Idle";
-      document.getElementById("status").innerText = "Balance reset.";
-      localStorage.removeItem("sessionId"); // new session for next interaction
-      sessionId = Date.now() + "-" + Math.random();
-      localStorage.setItem("sessionId", sessionId);
+    // ⚠️ Low balance warning
+    if (data.balance <= 5 && data.balance > 0 && !warnedLowBalance) {
+      warnedLowBalance = true;
+      alert("⚠️ Low balance! Call will switch to credit soon.");
     }
 
-    async function getStatus() {
-      const res = await fetch("/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId })
-      });
-      const data = await res.json();
-
-      document.getElementById("status").innerHTML = `
-        Balance: ₦${data.balance} <br>
-        Credit: ₦${data.credit} <br>
-        Using Credit: <span style="color:${data.usingCredit ? 'red' : 'green'}">
-          ${data.usingCredit}
-        </span><br>
-        In Call: ${data.callActive}
-      `;
-
-      if (!data.callActive && callActive) {
-        callActive = false;
-        document.getElementById("callStatus").innerText = "❌ Call Ended";
-        stopTimer();
-      }
+    // 🔴 Switched to credit
+    if (data.usingCredit && !switchedToCredit) {
+      switchedToCredit = true;
+      alert("🚨 You are now using borrowed airtime (credit).");
     }
 
-    setInterval(getStatus, 1000);
-  </script>
+    // 💰 UI display
+    document.getElementById("status").innerHTML = `
+      <b>Balance:</b> ₦${data.balance} <br>
+      <b>Credit:</b> ₦${data.credit} <br>
+      <b>Mode:</b> ${data.usingCredit ? "🔴 Credit Mode" : "🟢 Airtime"} <br>
+      <b>Call:</b> ${data.callActive ? "📡 Active" : "❌ Ended"}
+    `;
+  }
+
+  // Faster refresh for smooth UI
+  setInterval(getStatus, 1000);
+</script>
 </body>
 </html>
