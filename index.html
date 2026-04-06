@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ozed Call Continuity</title>
+  <style>
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin: 5px;
+      border: none;
+      color: white;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+
+    #startCallBtn {
+      background-color: green;
+    }
+
+    #endCallBtn {
+      background-color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>📞 Ozed Call Continuity</h1>
+
+  <button id="startCallBtn" onclick="startCall()">Start Call</button>
+  <button id="endCallBtn" onclick="endCall()">End Call</button>
+
+  <h2 id="callStatus">Status: Idle</h2>
+  <h3 id="timer">⏱ 00:00</h3>
+
+  <h2>Wallet:</h2>
+  <p id="status">Loading...</p>
+
+  <script>
+    let callActive = false;
+    let seconds = 0;
+    let timerInterval = null;
+    let wasUsingCredit = false;
+
+    // Sound for credit switch
+    const audio = new Audio("https://www.soundjay.com/button/sounds/beep-07.mp3");
+
+    function formatTime(sec) {
+      let mins = Math.floor(sec / 60);
+      let secs = sec % 60;
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function startTimer() {
+      timerInterval = setInterval(() => {
+        seconds++;
+        document.getElementById("timer").innerText = "⏱ " + formatTime(seconds);
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      seconds = 0;
+      document.getElementById("timer").innerText = "⏱ 00:00";
+    }
+
+    async function startCall() {
+      await fetch("/start-call");
+      callActive = true;
+      document.getElementById("callStatus").innerText = "📡 In Call";
+      startTimer();
+    }
+
+    async function endCall() {
+      await fetch("/end-call");
+      callActive = false;
+      document.getElementById("callStatus").innerText = "❌ Call Ended";
+      stopTimer();
+    }
+
+    async function getStatus() {
+      const res = await fetch("/status");
+      const data = await res.json();
+
+      document.getElementById("status").innerHTML = `
+        Balance: ₦${data.balance} <br>
+        Credit: ₦${data.credit} <br>
+        Using Credit: <span style="color:${data.usingCredit ? 'red' : 'green'}">
+          ${data.usingCredit}
+        </span><br>
+        In Call: ${data.inCall}
+      `;
+
+      // 🔥 Trigger credit switch alert once
+      if (data.usingCredit && !wasUsingCredit) {
+        audio.play();
+        alert("⚡ Switched to borrowed airtime!");
+      }
+      wasUsingCredit = data.usingCredit;
+
+      // Auto stop UI if backend ends call
+      if (!data.inCall && callActive) {
+        callActive = false;
+        document.getElementById("callStatus").innerText = "❌ Call Ended";
+        stopTimer();
+      }
+    }
+
+    setInterval(getStatus, 2000);
+  </script>
+</body>
+</html>
