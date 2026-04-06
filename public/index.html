@@ -1,149 +1,103 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Call Continuity MVP</title>
-</head>
-<body>
-  <h1>📞 Call Continuity MVP</h1>
+const express = require('express');
+const app = express();
+const path = require('path');
 
-  <button style="background-color:green;color:white" onclick="startCall()">Start Call</button>
-  <button style="background-color:red;color:white" onclick="endCall()">End Call</button>
-  <button onclick="resetDemo()">🔄 Reset Demo</button>
+app.use(express.json());
 
-  <h2 id="callStatus">Status: Idle</h2>
-  <h3 id="timer">⏱ 00:00</h3>
+// Serve frontend
+app.use(express.static(path.join(__dirname, 'public')));
 
-  <h2>Wallet:</h2>
-  <p id="status">Loading...</p>
+// Default route
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-<script>
-  let sessionId = localStorage.getItem("sessionId");
-  if (!sessionId) {
-    sessionId = Date.now() + "-" + Math.random();
-    localStorage.setItem("sessionId", sessionId);
+// ---------------- SESSION STORAGE ----------------
+let sessions = {};
+
+// Create / get session
+function getSession(id) {
+  if (!sessions[id]) {
+    sessions[id] = {
+      callActive: false,
+      startTime: null,
+      baseBalance: 15,
+      baseCredit: 50
+    };
   }
+  return sessions[id];
+}
 
-  let callActive = false;
-  let seconds = 0;
-  let timerInterval = null;
-  let warnedLowBalance = false;
-  let switchedToCredit = false;
+// ---------------- ROUTES ----------------
 
-  function formatTime(sec) {
-    let mins = Math.floor(sec / 60);
-    let secs = sec % 60;
-    return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
-  }
+// Start call
+app.post("/start-call", (req, res) => {
+  const { sessionId } = req.body;
+  const session = getSession(sessionId);
 
-  function startTimer() {
-    if (timerInterval) return;
+  session.callActive = true;
+  session.startTime = Date.now();
 
-    timerInterval = setInterval(() => {
-      seconds++;
-      document.getElementById("timer").innerText = "⏱ " + formatTime(seconds);
-    }, 1000);
-  }
+  res.json({ status: "call started" });
+});
 
-  function stopTimer() {
-    clearInterval(timerInterval);
-    timerInterval = null;
-    seconds = 0;
-    document.getElementById("timer").innerText = "⏱ 00:00";
-  }
+// End call
+app.post("/end-call", (req, res) => {
+  const { sessionId } = req.body;
+  const session = getSession(sessionId);
 
-  async function startCall() {
-    await fetch("/start-call", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId })
-    });
+  session.callActive = false;
+  session.startTime = null;
 
-    callActive = true;
-    warnedLowBalance = false;
-    switchedToCredit = false;
+  res.json({ status: "call ended" });
+});
 
-    document.getElementById("callStatus").innerText = "📡 In Call";
-    startTimer();
-  }
+// Status (CORE LOGIC HERE 🔥)
+app.post("/status", (req, res) => {
+  const { sessionId } = req.body;
+  const session = getSession(sessionId);
 
-  async function endCall() {
-    await fetch("/end-call", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId })
-    });
+  let balance = session.baseBalance;
+  let credit = session.baseCredit;
+  let usingCredit = false;
 
-    resetUI();
-  }
+  if (session.callActive && session.startTime) {
+    const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
 
-  function resetUI() {
-    callActive = false;
-    warnedLowBalance = false;
-    switchedToCredit = false;
+    if (elapsed < session.baseBalance) {
+      balance = session.baseBalance - elapsed;
+      credit = session.baseCredit;
+      usingCredit = false;
+    } else {
+      const creditUsed = elapsed - session.baseBalance;
 
-    stopTimer();
-    document.getElementById("callStatus").innerText = "❌ Call Ended";
-  }
+      balance = 0;
 
-  async function resetDemo() {
-    await fetch("/reset-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId })
-    });
-
-    resetUI();
-
-    document.getElementById("callStatus").innerText = "Status: Idle";
-    document.getElementById("status").innerText = "Balance reset.";
-
-    localStorage.removeItem("sessionId");
-    sessionId = Date.now() + "-" + Math.random();
-    localStorage.setItem("sessionId", sessionId);
-  }
-
-  async function getStatus() {
-    const res = await fetch("/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId })
-    });
-
-    const data = await res.json();
-
-    // 🔁 FULL STATE SYNC
-    if (data.callActive && !callActive) {
-      callActive = true;
-      startTimer();
-      document.getElementById("callStatus").innerText = "📡 In Call";
+      if (creditUsed < session.baseCredit) {
+        credit = session.baseCredit - creditUsed;
+        usingCredit = true;
+      } else {
+        credit = 0;
+        session.callActive = false; // auto end call
+      }
     }
-
-    if (!data.callActive && callActive) {
-      resetUI();
-    }
-
-    // ⚠️ Low balance warning
-    if (data.callActive && data.balance <= 5 && data.balance > 0 && !warnedLowBalance) {
-      warnedLowBalance = true;
-      alert("⚠️ Low balance! Switching to credit soon...");
-    }
-
-    // 🔴 Switched to credit
-    if (data.callActive && data.usingCredit && !switchedToCredit) {
-      switchedToCredit = true;
-      alert("🚨 You are now using borrowed airtime!");
-    }
-
-    // 💰 UI DISPLAY
-    document.getElementById("status").innerHTML = `
-      <b>Balance:</b> ₦${data.balance} <br>
-      <b>Credit:</b> ₦${data.credit} <br>
-      <b>Mode:</b> ${data.usingCredit ? "🔴 Credit Mode" : "🟢 Airtime"} <br>
-      <b>Status:</b> ${data.callActive ? "📡 Active Call" : "❌ No Call"}
-    `;
   }
 
-  setInterval(getStatus, 1000);
-</script>
-</body>
-</html>
+  res.json({
+    balance,
+    credit,
+    usingCredit,
+    callActive: session.callActive
+  });
+});
+
+// Reset
+app.post("/reset-session", (req, res) => {
+  const { sessionId } = req.body;
+  delete sessions[sessionId];
+  res.json({ status: "session reset" });
+});
+
+// ---------------- START SERVER ----------------
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

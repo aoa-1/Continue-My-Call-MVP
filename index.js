@@ -20,37 +20,12 @@ function getSession(id) {
   if (!sessions[id]) {
     sessions[id] = {
       callActive: false,
-      balance: 15,
-      credit: 50,
-      usingCredit: false,
-      interval: null
+      startTime: null,
+      baseBalance: 15,
+      baseCredit: 50
     };
   }
   return sessions[id];
-}
-
-// ---------------- REAL-TIME DEDUCTION ----------------
-function startDeduction(session) {
-  if (session.interval) return; // prevent multiple timers
-
-  session.interval = setInterval(() => {
-  if (!session.callActive) return;
-
-  if (session.balance > 0) {
-    session.balance -= 1;
-    session.usingCredit = false;
-  } else if (session.credit > 0) {
-    session.usingCredit = true;
-    session.credit -= 1;
-  } else {
-    session.callActive = false;
-    clearInterval(session.interval);
-    session.interval = null;
-  }
-
-  console.log("Deducting:", session.balance, session.credit);
-
-}, 1000);
 }
 
 // ---------------- ROUTES ----------------
@@ -61,10 +36,9 @@ app.post("/start-call", (req, res) => {
   const session = getSession(sessionId);
 
   session.callActive = true;
+  session.startTime = Date.now();
 
-  startDeduction(session);
-
-  res.json(session);
+  res.json({ status: "call started" });
 });
 
 // End call
@@ -73,35 +47,54 @@ app.post("/end-call", (req, res) => {
   const session = getSession(sessionId);
 
   session.callActive = false;
+  session.startTime = null;
 
-  if (session.interval) {
-    clearInterval(session.interval);
-    session.interval = null;
-  }
-
-  session.balance = 15;
-  session.credit = 50;
-  session.usingCredit = false;
-
-  res.json(session);
+  res.json({ status: "call ended" });
 });
 
-// Status
+// Status (CORE LOGIC HERE 🔥)
 app.post("/status", (req, res) => {
   const { sessionId } = req.body;
-  res.json(getSession(sessionId));
+  const session = getSession(sessionId);
+
+  let balance = session.baseBalance;
+  let credit = session.baseCredit;
+  let usingCredit = false;
+
+  if (session.callActive && session.startTime) {
+    const elapsed = Math.floor((Date.now() - session.startTime) / 1000);
+
+    if (elapsed < session.baseBalance) {
+      balance = session.baseBalance - elapsed;
+      credit = session.baseCredit;
+      usingCredit = false;
+    } else {
+      const creditUsed = elapsed - session.baseBalance;
+
+      balance = 0;
+
+      if (creditUsed < session.baseCredit) {
+        credit = session.baseCredit - creditUsed;
+        usingCredit = true;
+      } else {
+        credit = 0;
+        session.callActive = false; // auto end call
+      }
+    }
+  }
+
+  res.json({
+    balance,
+    credit,
+    usingCredit,
+    callActive: session.callActive
+  });
 });
 
 // Reset
 app.post("/reset-session", (req, res) => {
   const { sessionId } = req.body;
-
-  if (sessions[sessionId]?.interval) {
-    clearInterval(sessions[sessionId].interval);
-  }
-
   delete sessions[sessionId];
-
   res.json({ status: "session reset" });
 });
 
