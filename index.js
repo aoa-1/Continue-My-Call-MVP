@@ -25,6 +25,23 @@ function getSession(id) {
       seconds: 0
     };
   }
+  function simulateCall(session) {
+  if (!session.callActive) return;
+
+  // Deduct ₦1 per second
+  if (session.balance > 0) {
+    session.balance -= 1;
+    if (session.balance <= 0) {
+      session.balance = 0;
+      session.usingCredit = true;
+    }
+  } else if (session.credit > 0) {
+    session.credit -= 1;
+  } else {
+    // End call when both are exhausted
+    session.callActive = false;
+  }
+}
   return sessions[id];
 }
 
@@ -49,7 +66,12 @@ app.post("/end-call", (req, res) => {
 
 app.post("/status", (req, res) => {
   const { sessionId } = req.body;
-  res.json(getSession(sessionId));
+  const session = getSession(sessionId);
+
+  // simulate deduction on every check
+  simulateCall(session);
+
+  res.json(session);
 });
 
 app.post("/reset-session", (req, res) => {
