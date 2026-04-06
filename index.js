@@ -19,7 +19,7 @@ function getSession(id) {
   if (!sessions[id]) {
     sessions[id] = {
       callActive: false,
-      balance: 100,
+      balance: 15,
       credit: 50,
       usingCredit: false,
       seconds: 0
